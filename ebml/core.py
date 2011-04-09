@@ -1,4 +1,5 @@
-import warnings
+import struct
+import datetime
 from .exceptions import *
 
 
@@ -125,3 +126,67 @@ def read_element_id(stream, max_width=EBMLMaxIDLength):
 		raise ReservedElementIDError('All value bits set to 0')
 	
 	return value, vint_len
+
+
+def read_int(stream, size):
+	value = 0
+	if size > 0:
+		byte = ord(stream.read(1))
+		if (byte & 0b10000000) == 0b10000000:
+			value = -1 << 8
+		value |= byte
+		for i in range(1, size):
+			byte = ord(stream.read(1))
+			value = (value << 1) | byte
+	return value
+
+
+def read_uint(stream, size):
+	value = 0
+	for i in range(0, size):
+		byte = ord(stream.read(1))
+		value = (value << 8) | byte
+	return value
+
+
+def read_float(stream, size):
+	if size not in (0, 4, 8):
+		# http://www.matroska.org/technical/specs/rfc/index.html allows for 10-byte floats.
+		# http://www.matroska.org/technical/specs/index.html specifies 4-byte and 8-byte only.
+		# I'm following the latter due to it being more up-to-date than the former, and because it's easier to implement.
+		raise ValueError('floats must be 0, 4, or 8 bytes long')
+	value = 0.0
+	if size in (4, 8):
+		data = stream.read(size)
+		value = struct.unpack({
+			4: '>f',
+			8: '>d'
+		}[size], data)[0]
+	return value
+
+
+def read_string(stream, size):
+	value = ''
+	if size > 0:
+		value = stream.read(size)
+	return value
+
+
+def read_unicode(stream, size):
+	value = u''
+	if size > 0:
+		data = stream.read(size)
+		value = unicode(data, 'utf_8')
+	return value
+
+
+def read_date(stream):
+	size = 8 # date is always an 8-byte signed integer
+	data = stream.read(size)
+	nanoseconds = struct.unpack('>q', data)[0]
+	delta = datetime.timedelta(microseconds=(nanoseconds // 1000))
+	return datetime.datetime(2001, 1, 1) + delta
+
+
+def read_binary(stream, size):
+	return stream.read(size)

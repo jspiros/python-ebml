@@ -4,16 +4,6 @@ __all__ = ('INT', 'UINT', 'FLOAT', 'STRING', 'UNICODE', 'DATE', 'BINARY', 'CONTA
 INT, UINT, FLOAT, STRING, UNICODE, DATE, BINARY, CONTAINER = range(0, 8)
 
 
-SCHEMA_TYPES = {
-	'int': INT,
-	'uint': UINT,
-	'float': FLOAT,
-	'string': STRING,
-	'date': DATE,
-	'binary': BINARY
-}
-
-
 class Element(object):
 	class_id = None
 	class_name = 'Unknown'
