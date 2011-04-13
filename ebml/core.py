@@ -138,13 +138,13 @@ def read_signed_integer(stream, size):
 	
 	value = 0
 	if size > 0:
-		byte = ord(stream.read(1))
-		if (byte & 0b10000000) == 0b10000000:
-			value = -1 << 8
-		value |= byte
+		first_byte = ord(stream.read(1))
+		value = first_byte
 		for i in xrange(1, size):
 			byte = ord(stream.read(1))
-			value = (value << 1) | byte
+			value = (value << 8) | byte
+		if (first_byte & 0b10000000) == 0b10000000:
+			value = -(2**(size*8) - value)
 	return value
 
 
@@ -391,9 +391,7 @@ def encode_signed_integer(sint, length=None):
 		if sint >= 0:
 			uint = sint
 		else:
-			uint = 0b10000000 << (length - 1)
-			uint += sint
-			uint |= 0b10000000 << (length - 1)
+			uint = 2**(length*8) - abs(sint)
 	
 	data = bytearray(length)
 	for index in reversed(xrange(length)):

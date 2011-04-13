@@ -59,5 +59,48 @@ class ElementIDTests(unittest.TestCase):
 			self.assert_roundtrip(id_)
 
 
+class ValueTestCase(unittest.TestCase):
+	encoder = None
+	reader = None
+	
+	def assert_roundtrip(self, value):
+		if self.encoder is not None and self.reader is not None:
+			encoded = self.encoder(value)
+			encoded_stream = StringIO(encoded)
+			self.assertEqual(value, self.reader(encoded_stream, len(encoded)))
+		else:
+			raise NotImplementedError
+
+
+class UnsignedIntegerTests(ValueTestCase):
+	encoder = staticmethod(encode_unsigned_integer)
+	reader = staticmethod(read_unsigned_integer)
+	maximum = 2**64 - 1
+	
+	def test_random(self):
+		for value in (randint(0, self.maximum) for i in xrange(0, 10000)):
+			self.assert_roundtrip(value)
+	
+	def test_maximum(self):
+		self.assert_roundtrip(self.maximum)
+
+
+class SignedIntegerTests(ValueTestCase):
+	encoder = staticmethod(encode_signed_integer)
+	reader = staticmethod(read_signed_integer)
+	minimum = -(2**63)
+	maximum = (2**63) - 1
+	
+	def test_random(self):
+		for value in (randint(self.minimum, self.maximum) for i in xrange(0, 10000)):
+			self.assert_roundtrip(value)
+	
+	def test_minimum(self):
+		self.assert_roundtrip(self.minimum)
+	
+	def test_maximum(self):
+		self.assert_roundtrip(self.maximum)
+
+
 if __name__ == '__main__':
 	unittest.main()
