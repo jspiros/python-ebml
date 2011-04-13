@@ -189,6 +189,7 @@ def read_string(stream, size):
 	value = ''
 	if size > 0:
 		value = stream.read(size)
+		value = value.rstrip(chr(0))
 	return value
 
 
@@ -208,6 +209,7 @@ def read_unicode_string(stream, size):
 	value = u''
 	if size > 0:
 		data = stream.read(size)
+		data = data.rstrip(chr(0))
 		value = unicode(data, 'utf_8')
 	return value
 
