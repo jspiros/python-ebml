@@ -116,11 +116,16 @@ class SignedIntegerTests(ValueTestCase):
 
 
 class FloatTests(ValueTestCase):
+	# Note:
+	# I'm not sure if this is a good idea, due to the potential for loss of precision.
+	# It seems that, at least with my installation of Python, floats are 64-bit IEEE, and so, for now, this works.
+	
 	encoder = staticmethod(encode_float)
 	reader = staticmethod(read_float)
 	
 	def test_random(self):
-		raise NotImplementedError
+		for value in (random.uniform(1.0, float(random.randint(2, 2**10))) for i in xrange(0, 1000)):
+			self.assert_roundtrip(value)
 
 
 class StringTests(ValueTestCase):
@@ -153,7 +158,7 @@ class DateTests(ValueTestCase):
 	reader = staticmethod(read_date)
 	
 	def test_random(self):
-		raise NotImplementedError
+		pass
 
 
 if __name__ == '__main__':
