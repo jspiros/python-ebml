@@ -1,17 +1,17 @@
 from .schema import *
-from .core import read_element_id, read_element_size, read_int, read_uint, read_float, read_string, read_unicode, read_date
+from .core import *
 
 
 __all__ = ('EBMLFile', 'MatroskaFile')
 
 
 TYPE_READERS = {
-	INT: read_int,
-	UINT: read_uint,
+	INT: read_signed_integer,
+	UINT: read_unsigned_integer,
 	FLOAT: read_float,
 	STRING: read_string,
-	UNICODE: read_unicode,
-	DATE: lambda stream, size: read_date(stream)
+	UNICODE: read_unicode_string,
+	DATE: read_date
 }
 
 
