@@ -34,7 +34,7 @@ def parse_specdata(source, doc_name, doc_type, doc_version):
 	elements = {}
 	globals = []
 	
-	def child_elements(parent_level, element_list):
+	def child_elements(parent_level, element_list, upper_recursive=None):
 		children = []
 		while element_list:
 			raw_element = element_list[0]
@@ -69,10 +69,19 @@ def parse_specdata(source, doc_name, doc_type, doc_version):
 			except (KeyError, ValueError):
 				element_attrs['default'] = None
 			
-			element_attrs['children'], element_list = child_elements(element_level if not is_global else 0, element_list)
-			
 			element = type(element_name, (Element,), element_attrs)
 			elements[element_name] = element
+			
+			recursive = []
+			if upper_recursive:
+				recursive.extend(upper_recursive)
+			if raw_attrs.get('recursive', False) == '1':
+				recursive.append(element)
+			
+			element_children, element_list = child_elements(element_level if not is_global else 0, element_list, recursive)
+			element_children += tuple(recursive)
+			element.children = element_children
+			
 			if is_global:
 				globals.append(element)
 			else:
