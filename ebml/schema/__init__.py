@@ -1,2 +1,3 @@
 from .base import *
-from .matroska import Matroska
+from .ebml import EBMLDocument
+from .matroska import MatroskaDocument
