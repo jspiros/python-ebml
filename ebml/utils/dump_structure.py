@@ -3,7 +3,7 @@ from ..schema import EBMLDocument, UnknownElement, CONTAINER, BINARY
 
 def dump_element(element, indent=0):
 	if isinstance(element, UnknownElement):
-		print(('\t' * indent) + ('<Unknown id=\'%s\' bytes=\'%i\' />' % (hex(element.id), element.encoding[0])))
+		print(('\t' * indent) + ('<Unknown id=\'%s\' bytes=\'%i\' />' % (hex(element.id), element.body_size)))
 	else:
 		sargs = {
 			'name': element.name,

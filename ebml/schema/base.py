@@ -1,4 +1,4 @@
-import abc
+import abc, os
 try:
 	from cStringIO import StringIO
 except ImportError:
@@ -23,29 +23,105 @@ READERS = {
 }
 
 
-ENCODERS = {
-	INT: encode_signed_integer,
-	UINT: encode_unsigned_integer,
-	FLOAT: encode_float,
-	STRING: encode_string,
-	UNICODE: encode_unicode_string,
-	DATE: encode_date,
-	BINARY: lambda binary, length: binary
-}
+class Stream(object):
+	class Substream(object):
+		def __init__(self, stream, offset, size):
+			self.stream = stream
+			self.offset = offset
+			self.size = size
+		
+		def read(self, size):
+			current_offset = self.tell()
+			if current_offset == 0:
+				self.stream.seek(self.offset)
+				if size > self.size:
+					return self.stream.read(self.size)
+				else:
+					return self.stream.read(size)
+			else:
+				if current_offset > self.size:
+					return b''
+				else:
+					max_size = (self.size - current_offset)
+					if size <= max_size:
+						return self.stream.read(size)
+					else:
+						return self.stream.read(max_size)
+		
+		def seek(self, offset, whence=os.SEEK_SET):
+			if whence == os.SEEK_SET:
+				desired_offset = self.offset + offset
+			elif whence == os.SEEK_CUR:
+				desired_offset = self.stream.tell() + offset
+			elif whence == os.SEEK_END:
+				desired_offset = self.offset + self.size + offset
+			
+			if not self.offset <= desired_offset:
+				raise IOError
+			
+			self.stream.seek(desired_offset, os.SEEK_SET)
+		
+		def tell(self):
+			stream_offset = self.stream.tell()
+			if stream_offset <= self.offset:
+				return 0
+			else:
+				return stream_offset - self.offset
+		
+		def substream(self, offset, size):
+			if offset + size <= self.size:
+				return self.stream.substream(self.offset + offset, size)
+			else:
+				raise IOError
+		
+		def __getitem__(self, key):
+			if isinstance(key, (int, long)):
+				self.seek(key)
+				return self.read(1)
+			elif isinstance(key, slice):
+				if key.start is None or key.stop is None or key.step is not None:
+					raise IndexError
+				return self.substream(key.start, (key.stop - key.start))
+			else:
+				raise TypeError
+	
+	def __init__(self, file_like):
+		self.file = file_like
+		self.file.seek(0, os.SEEK_END)
+		self.size = self.file.tell()
+		self.file.seek(0, os.SEEK_SET)
+		self.substreams = {}
+	
+	def read(self, size):
+		return self.file.read(size)
+	
+	def seek(self, offset, whence=os.SEEK_SET):
+		return self.file.seek(offset, whence)
+	
+	def tell(self):
+		return self.file.tell()
+	
+	def substream(self, offset, size):
+		if offset + size <= self.size:
+			if (offset, size) not in self.substreams:
+				self.substreams[(offset, size)] = self.Substream(self, offset, size)
+			return self.substreams[(offset, size)]
+		else:
+			raise IOError
+	
+	def __getitem__(self, key):
+		if isinstance(key, (int, long)):
+			self.seek(key)
+			return self.read(1)
+		elif isinstance(key, slice):
+			if key.start is None or key.stop is None or key.step is not None:
+				raise IndexError
+			return self.substream(key.start, (key.stop - key.start))
+		else:
+			raise TypeError
 
 
-VALIDATORS = {
-	INT: lambda value: True if isinstance(value, (int, long)) else False,
-	UINT: lambda value: True if isinstance(value, (int, long)) and value == abs(value) else False,
-	FLOAT: lambda value: True if isinstance(value, float) else False,
-	STRING: lambda value: True if isinstance(value, str) else False,
-	UNICODE: lambda value: True if isinstance(value, basestring) else False,
-	DATE: lambda value: True if isinstance(value, datetime.datetime) else False,
-	BINARY: lambda value: True if isinstance(value, (str, bytes, bytearray)) else False
-}
-
-
-class BaseElement(object):
+class Element(object):
 	__metaclass__ = abc.ABCMeta
 	
 	id = abc.abstractproperty()
@@ -55,105 +131,35 @@ class BaseElement(object):
 	children = ()
 	mandatory = False
 	multiple = False
-
-
-class UnknownElement(BaseElement):
-	id = None
-	name = 'Unknown'
-	type = BINARY
 	
-	def __init__(self, id, encoding):
-		self.id = id
-		self.encoding = encoding
-
-
-def read_elements(stream, size, document, children):
-	elements = []
-	while (size if size is not None else True):
-		try:
-			element_id, element_id_size = read_element_id(stream)
-			element_size, element_size_size = read_element_size(stream)
-			element_encoding = (element_size, bytearray(stream.read(element_size)))
-		except:
-			break
-		else:
-			element_class = None
-			for child in (children + document.globals):
-				if child.id == element_id:
-					element_class = child
-					break
-			if element_class is None:
-				element = UnknownElement(element_id, element_encoding)
-			else:
-				element = element_class(document, encoding=element_encoding)
-			elements.append(element)
-			if size is not None:
-				size -= element_id_size + element_size_size + element_size
-	return elements
-
-
-class Element(BaseElement):
-	@classmethod
-	def check_value(cls, value):
-		if cls.type in VALIDATORS:
-			return VALIDATORS[cls.type](value)
-		elif cls.type == CONTAINER:
-			if isinstance(value, (list, tuple)):
-				for item in value:
-					if not isinstance(value, Element):
-						return False
-				return True
-			elif isinstance(value, Element):
-				return True
-			else:
-				return False
-		else:
-			raise NotImplementedError('Unsupported element type.')
-	
-	def __init__(self, document, value=None, encoding=None):
+	def __init__(self, document, stream):
 		self.document = document
-		self._value = value
-		self._encoding = encoding
+		self.stream = stream
 	
 	@property
 	def value(self):
-		if self._value is None and self._encoding is not None:
+		if not hasattr(self, 'cached_value'):
 			if self.type in READERS:
-				self._value = READERS[self.type](StringIO(self._encoding[1]), self._encoding[0])
+				self.cached_value = READERS[self.type](self.body_stream, self.body_size)
 			elif self.type == CONTAINER:
-				self._value = read_elements(StringIO(self._encoding[1]), self._encoding[0], self.document, self.children)
-		return self._value
-	
-	@value.setter
-	def set_value(self, value):
-		if not self.check_value(value):
-			raise ValueError('Unsupported element value.')
-		self._value = value
-		self._encoding = None
-	
-	@property
-	def encoding(self):
-		if self._encoding is None:
-			size = 0
-			data = bytearray()
-			if self._value is not None:
-				if self.type in ENCODERS:
-					data = ENCODERS[self.type](self._value)
-					size = len(data)
-				elif self.type == CONTAINER:
-					for element in self._value:
-						size += element.size
-						data.extend(element.encoding[1])
-			self._encoding = (size, data)
-		return self._encoding
+				self.cached_value = read_elements(self.body_stream, self.document, self.children)
+			else:
+				self.cached_value = None
+		return self.cached_value
 	
 	@property
 	def id_size(self):
-		return len(encode_element_id(self.id))
+		if not hasattr(self, 'cached_id_size'):
+			self.stream.seek(0)
+			_, self.cached_id_size = read_element_id(self.stream)
+		return self.cached_id_size
 	
 	@property
 	def size_size(self):
-		return len(encode_element_size(self.body_size))
+		if not hasattr(self, 'cached_size_size'):
+			self.stream.seek(self.id_size)
+			_, self.cached_size_size = read_element_size(self.stream)
+		return self.cached_size_size
 	
 	@property
 	def head_size(self):
@@ -161,11 +167,52 @@ class Element(BaseElement):
 	
 	@property
 	def body_size(self):
-		return self.encoding[0]
+		return self.size - self.head_size
+	
+	@property
+	def body_stream(self):
+		return self.stream.substream(self.head_size, self.body_size)
 	
 	@property
 	def size(self):
-		return self.head_size + self.body_size
+		return self.stream.size
+
+
+class UnknownElement(Element):
+	id = None
+	name = 'Unknown'
+	type = BINARY
+	
+	def __init__(self, document, stream, id):
+		self.id = id
+		super(UnknownElement, self).__init__(document, stream)
+
+
+def read_elements(stream, document, children):
+	elements = []
+	size = stream.size
+	while size:
+		element_offset = stream.size - size
+		stream.seek(element_offset)
+		element_id, element_id_size = read_element_id(stream)
+		element_size, element_size_size = read_element_size(stream)
+		element_stream_size = element_id_size + element_size_size + element_size
+		element_stream = stream.substream(element_offset, element_stream_size)
+		size -= element_stream_size
+		
+		element_class = None
+		for child in (children + document.globals):
+			if child.id == element_id:
+				element_class = child
+				break
+		
+		if element_class is None:
+			element = UnknownElement(document, element_stream, element_id)
+		else:
+			element = element_class(document, element_stream)
+		
+		elements.append(element)
+	return elements
 
 
 class Document(object):
@@ -176,12 +223,12 @@ class Document(object):
 	children = ()
 	globals = ()
 	
-	def __init__(self, stream):
-		self.stream = stream
+	def __init__(self, file_like):
+		self.stream = Stream(file_like)
 		self._roots = None
 	
 	@property
 	def roots(self):
 		if self._roots is None:
-			self._roots = read_elements(self.stream, None, self, self.children)
+			self._roots = read_elements(self.stream, self, self.children)
 		return self._roots
